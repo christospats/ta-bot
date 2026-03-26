@@ -1,0 +1,12 @@
+alpaca-py>=0.8.0
+rich>=13.0.0
+plotext>=5.2.0
+pandas>=2.0.0
+pandas-ta>=0.3.14b
+requests>=2.31.0
+python-dotenv>=1.0.0
+ollama>=0.1.7
+prompt_toolkit>=3.0.0
+pytz
+alpaca
+yfinance>=0.2.40
