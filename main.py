@@ -18,7 +18,10 @@ from prompt_toolkit.completion import WordCompleter
 
 import config
 from modules.market      import get_quote, get_bars, get_portfolio, get_info
-from modules.charts      import draw_price_chart, draw_volume_chart
+from modules.portfolio   import (portfolio_init, portfolio_session, portfolio_show,
+                                  portfolio_add_asset, portfolio_remove_asset,
+                                  portfolio_history, portfolio_list_symbols)
+from modules.charts      import draw_price_chart, draw_volume_chart, draw_indicator_charts
 from modules.indicators  import compute_indicators, print_indicators
 from modules.news        import get_news, print_news
 from ai.assistant        import chat, analyze_stock, compare_stocks
@@ -27,8 +30,8 @@ console = Console()
 
 BANNER = """
 [bold cyan]╔══════════════════════════════════════════════════╗
-║       🦙  Alpaca Trading Assistant  v1.0          ║
-║       Advisory mode — no auto-trades              ║
+║       🦙  Alpaca Trading Assistant  v1.0         ║
+║       Advisory mode — no auto-trades             ║
 ╚══════════════════════════════════════════════════╝[/bold cyan]
 """
 
@@ -38,10 +41,16 @@ HELP_TEXT = """
   [cyan]info   <SYMBOL>[/cyan]              Company info (sector, P/E, 52w range)
   [cyan]quote  <SYMBOL>[/cyan]              Real-time quote
   [cyan]chart  <SYMBOL> [PERIOD][/cyan]     ASCII price chart  (1D 1W 1M 3M 1Y)
+  [cyan]icharts <SYMBOL> [PERIOD][/cyan]   4 charts: Price / MA / RSI / MACD  (alias: ic)
   [cyan]volume <SYMBOL> [PERIOD][/cyan]     Volume chart
   [cyan]ind    <SYMBOL> [PERIOD][/cyan]     Technical indicators
   [cyan]news   <SYMBOL>[/cyan]              Latest news + sentiment
-  [cyan]portfolio[/cyan]                    Your Alpaca portfolio
+  [cyan]portfolio init[/cyan]               Αρχικοποίηση portfolio (κεφάλαιο + assets)
+  [cyan]portfolio show[/cyan]               Τρέχουσα κατάσταση + αποτίμηση
+  [cyan]portfolio session [DATE][/cyan]     Νέα αγοραπωλησία (DATE: YYYY-MM-DD)
+  [cyan]portfolio history[/cyan]            Ιστορικό sessions
+  [cyan]portfolio add <SYM>[/cyan]          Προσθήκη asset
+  [cyan]portfolio remove <SYM>[/cyan]       Αφαίρεση asset
   [cyan]analyze <SYMBOL> [PERIOD][/cyan]    Full AI analysis (chart + ind + news + AI)
   [cyan]compare <SYM_A> <SYM_B>[/cyan]     AI comparison of two stocks
   [cyan]ai[/cyan]                           Free-form chat with AI assistant
@@ -53,7 +62,7 @@ HELP_TEXT = """
 """
 
 _COMMANDS = [
-    "quote","chart","volume","ind","news","info","portfolio",
+    "quote","chart","volume","ind","icharts","ic","news","info","portfolio","pf",
     "analyze","compare","ai","model","help","quit","exit",
 ]
 _PERIODS  = ["1D","1W","1M","3M","1Y"]
@@ -133,6 +142,42 @@ def _print_portfolio() -> None:
 # ── Command handlers ─────────────────────────────────────
 
 
+
+def cmd_portfolio(parts: list[str]) -> None:
+    sub = parts[1].lower() if len(parts) > 1 else "show"
+
+    if sub == "init":
+        portfolio_init()
+    elif sub == "show":
+        portfolio_show()
+    elif sub == "session":
+        date = parts[2] if len(parts) > 2 else None
+        portfolio_session(date)
+    elif sub == "history":
+        portfolio_history()
+    elif sub == "add":
+        if len(parts) < 3:
+            console.print("[red]Usage: portfolio add <SYMBOL>[/red]")
+            return
+        portfolio_add_asset(parts[2])
+    elif sub == "remove":
+        if len(parts) < 3:
+            console.print("[red]Usage: portfolio remove <SYMBOL>[/red]")
+            return
+        portfolio_remove_asset(parts[2])
+    elif sub == "clear":
+        from modules.portfolio import PORTFOLIO_FILE
+        if PORTFOLIO_FILE.exists():
+            from rich.prompt import Confirm
+            if Confirm.ask("Διαγραφή όλου του portfolio;", default=False):
+                PORTFOLIO_FILE.unlink()
+                console.print("[red]Portfolio διαγράφηκε.[/red]")
+        else:
+            console.print("[yellow]Το portfolio είναι ήδη κενό.[/yellow]")
+    else:
+        console.print(f"[red]Άγνωστη εντολή: {sub}[/red]")
+        console.print("[dim]init | show | session | history | add | remove | clear[/dim]")
+
 def cmd_info(parts):
     sym = _require_symbol(parts, "info")
     if not sym:
@@ -169,6 +214,15 @@ def cmd_chart(parts):
         draw_price_chart(sym, bars, period)
 
 
+
+def cmd_icharts(parts):
+    sym    = _require_symbol(parts, "icharts")
+    if not sym: return
+    period = parts[2].upper() if len(parts) > 2 else config.DEFAULT_TIMEFRAME
+    bars   = get_bars(sym, period)
+    if bars:
+        draw_indicator_charts(sym, bars, period)
+
 def cmd_volume(parts):
     sym    = _require_symbol(parts, "volume")
     if not sym: return
@@ -184,7 +238,7 @@ def cmd_ind(parts):
     period = parts[2].upper() if len(parts) > 2 else config.DEFAULT_TIMEFRAME
     bars   = get_bars(sym, period)
     if bars:
-        ind = compute_indicators(bars)
+        ind = compute_indicators(bars, period)
         if ind:
             print_indicators(sym, ind)
 
@@ -209,7 +263,7 @@ def cmd_analyze(parts):
     ind      = None
     if bars:
         draw_price_chart(sym, bars, period)
-        ind = compute_indicators(bars)
+        ind = compute_indicators(bars, period)
         if ind:
             print_indicators(sym, ind)
 
@@ -231,8 +285,8 @@ def cmd_compare(parts):
 
     q_a = get_quote(sym_a); q_b = get_quote(sym_b)
     bars_a = get_bars(sym_a, period); bars_b = get_bars(sym_b, period)
-    ind_a  = compute_indicators(bars_a) if bars_a else None
-    ind_b  = compute_indicators(bars_b) if bars_b else None
+    ind_a  = compute_indicators(bars_a, period) if bars_a else None
+    ind_b  = compute_indicators(bars_b, period) if bars_b else None
 
     if ind_a: print_indicators(sym_a, ind_a)
     if ind_b: print_indicators(sym_b, ind_b)
@@ -316,6 +370,8 @@ def main():
             cmd_quote(parts)
         elif cmd in ("chart", "c"):
             cmd_chart(parts)
+        elif cmd in ("icharts", "ic"):
+            cmd_icharts(parts)
         elif cmd in ("volume", "vol"):
             cmd_volume(parts)
         elif cmd in ("ind", "indicators"):
@@ -323,7 +379,7 @@ def main():
         elif cmd in ("news", "n"):
             cmd_news(parts)
         elif cmd in ("portfolio", "pf"):
-            _print_portfolio()
+            cmd_portfolio(parts)
         elif cmd in ("analyze", "a"):
             cmd_analyze(parts)
         elif cmd in ("compare", "cmp"):
