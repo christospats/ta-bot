@@ -292,8 +292,8 @@ def cmd_compare(parts):
     if ind_b: print_indicators(sym_b, ind_b)
 
     compare_stocks(
-        sym_a, q_a["mid"] if q_a else 0.0, ind_a,
-        sym_b, q_b["mid"] if q_b else 0.0, ind_b,
+        sym_a, q_a["price"] if q_a else 0.0, ind_a,
+        sym_b, q_b["price"] if q_b else 0.0, ind_b,
     )
 
 
